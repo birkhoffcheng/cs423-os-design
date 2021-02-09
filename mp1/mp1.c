@@ -5,7 +5,7 @@
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Group_ID");
+MODULE_AUTHOR("Your_NetID");
 MODULE_DESCRIPTION("CS-423 MP1");
 
 #define DEBUG 1
