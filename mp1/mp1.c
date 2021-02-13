@@ -5,7 +5,7 @@
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your_NetID");
+MODULE_AUTHOR("zhiqic2");
 MODULE_DESCRIPTION("CS-423 MP1");
 
 #define DEBUG 1
@@ -17,11 +17,9 @@ int __init mp1_init(void)
    printk(KERN_ALERT "MP1 MODULE LOADING\n");
    #endif
    // Insert your code here ...
-   
-   
-   
+
    printk(KERN_ALERT "MP1 MODULE LOADED\n");
-   return 0;   
+   return 0;
 }
 
 // mp1_exit - Called when module is unloaded
@@ -31,8 +29,6 @@ void __exit mp1_exit(void)
    printk(KERN_ALERT "MP1 MODULE UNLOADING\n");
    #endif
    // Insert your code here ...
-   
-   
 
    printk(KERN_ALERT "MP1 MODULE UNLOADED\n");
 }
