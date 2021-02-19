@@ -27,7 +27,7 @@ struct mp1_process {
 	struct list_head elem;
 };
 
-void update_cpu_time(struct work_struct *work) {
+static void update_cpu_time(struct work_struct *work) {
 	struct mp1_process *proc, *tmp;
 	unsigned long cpu_time, flags;
 	list_for_each_entry_safe(proc, tmp, &mp1_process_list, elem) {
@@ -45,16 +45,48 @@ void update_cpu_time(struct work_struct *work) {
 
 DECLARE_WORK(mp1_work, update_cpu_time);
 
-void enq_work(unsigned long arg) {
+static void enq_work(unsigned long arg) {
 	queue_work(wq, &mp1_work);
 	mod_timer(&mp1_timer, jiffies + msecs_to_jiffies(5000));
 }
 
-static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, loff_t *data) {
-	return 0;
+static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, loff_t *offp) {
+	struct mp1_process *proc;
+	ssize_t bytes_read;
+	char *kbuf;
+
+	if (!access_ok(VERIFY_WRITE, buffer, count)) {
+		bytes_read = -EINVAL;
+		goto out;
+	}
+
+	if (*offp) {
+		bytes_read = 0;
+		goto out;
+	}
+
+	kbuf = kmalloc(count, GFP_KERNEL);
+	if (kbuf == NULL) {
+		bytes_read = -ENOMEM;
+		goto out;
+	}
+
+	bytes_read = 0;
+	list_for_each_entry(proc, &mp1_process_list, elem) {
+		bytes_read += scnprintf(kbuf + bytes_read, count - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
+		if (bytes_read >= count)
+			break;
+	}
+
+	*offp += bytes_read;
+	bytes_read -= copy_to_user(buffer, kbuf, bytes_read);
+	kfree(kbuf);
+
+out:
+	return bytes_read;
 }
 
-static ssize_t mp1_write(struct file *file, const char __user *buffer, size_t count, loff_t *data) {
+static ssize_t mp1_write(struct file *file, const char __user *buffer, size_t count, loff_t *offp) {
 	ssize_t bytes_written;
 	pid_t pid;
 	int error;
