@@ -27,6 +27,11 @@ struct mp1_process {
 	struct list_head elem;
 };
 
+struct status_file_buffer {
+	size_t size;
+	char buf[0];
+};
+
 static void update_cpu_time(struct work_struct *work) {
 	struct mp1_process *proc, *tmp;
 	unsigned long cpu_time, flags;
@@ -54,6 +59,8 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	struct mp1_process *proc;
 	ssize_t bytes_read;
 	char *kbuf;
+	struct status_file_buffer *sbuf;
+	size_t size = 0;
 
 	if (!access_ok(VERIFY_WRITE, buffer, count)) {
 		bytes_read = -EINVAL;
@@ -61,26 +68,42 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	}
 
 	if (*offp) {
-		bytes_read = 0;
+		sbuf = file->private_data;
+		size = sbuf->size;
+		kbuf = sbuf->buf;
+		if (*offp >= size) {
+			kfree(sbuf);
+			bytes_read = 0;
+		}
+		else {
+			bytes_read = (size - *offp < count) ? (size - *offp) : count;
+			bytes_read -= copy_to_user(buffer, kbuf + *offp, bytes_read);
+			*offp += bytes_read;
+		}
 		goto out;
 	}
 
-	kbuf = kmalloc(count, GFP_KERNEL);
-	if (kbuf == NULL) {
+	list_for_each_entry(proc, &mp1_process_list, elem)
+		size++;
+
+	sbuf = kmalloc(sizeof(struct status_file_buffer) + size * 32, GFP_KERNEL);
+	if (sbuf == NULL) {
 		bytes_read = -ENOMEM;
 		goto out;
 	}
+	size *= 32;
+	kbuf = sbuf->buf;
+	file->private_data = sbuf;
 
 	bytes_read = 0;
 	list_for_each_entry(proc, &mp1_process_list, elem) {
-		bytes_read += scnprintf(kbuf + bytes_read, count - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
-		if (bytes_read >= count)
-			break;
+		bytes_read += scnprintf(kbuf + bytes_read, size - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
 	}
 
-	*offp += bytes_read;
+	sbuf->size = bytes_read;
+	bytes_read = (bytes_read < count) ? bytes_read : count;
 	bytes_read -= copy_to_user(buffer, kbuf, bytes_read);
-	kfree(kbuf);
+	*offp += bytes_read;
 
 out:
 	return bytes_read;
