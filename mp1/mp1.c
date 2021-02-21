@@ -35,17 +35,17 @@ struct status_file_buffer {
 static void update_cpu_time(struct work_struct *work) {
 	struct mp1_process *proc, *tmp;
 	unsigned long cpu_time, flags;
+	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry_safe(proc, tmp, &mp1_process_list, elem) {
 		if (get_cpu_use(proc->pid, &cpu_time) == 0) {
 			proc->cpu_use = cpu_time;
 		}
 		else {
-			spin_lock_irqsave(&mp1_list_lock, flags);
 			list_del(&proc->elem);
-			spin_unlock_irqrestore(&mp1_list_lock, flags);
 			kfree(proc);
 		}
 	}
+	spin_unlock_irqrestore(&mp1_list_lock, flags);
 }
 
 DECLARE_WORK(mp1_work, update_cpu_time);
@@ -60,6 +60,7 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	ssize_t bytes_read;
 	char *kbuf;
 	struct status_file_buffer *sbuf;
+	unsigned long flags;
 	size_t size = 0;
 
 	if (!access_ok(VERIFY_WRITE, buffer, count)) {
@@ -67,12 +68,11 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 		goto out;
 	}
 
-	if (*offp) {
+	if (*offp || file->private_data) {
 		sbuf = file->private_data;
 		size = sbuf->size;
 		kbuf = sbuf->buf;
 		if (*offp >= size) {
-			kfree(sbuf);
 			bytes_read = 0;
 		}
 		else {
@@ -83,8 +83,10 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 		goto out;
 	}
 
+	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry(proc, &mp1_process_list, elem)
 		size++;
+	spin_unlock_irqrestore(&mp1_list_lock, flags);
 
 	sbuf = kmalloc(sizeof(struct status_file_buffer) + size * 32, GFP_KERNEL);
 	if (sbuf == NULL) {
@@ -96,9 +98,11 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	file->private_data = sbuf;
 
 	bytes_read = 0;
+	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry(proc, &mp1_process_list, elem) {
 		bytes_read += scnprintf(kbuf + bytes_read, size - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
 	}
+	spin_unlock_irqrestore(&mp1_list_lock, flags);
 
 	sbuf->size = bytes_read;
 	bytes_read = (bytes_read < count) ? bytes_read : count;
@@ -141,10 +145,16 @@ out:
 	return bytes_written;
 }
 
+static int mp1_release(struct inode *inode, struct file *file) {
+	kfree(file->private_data);
+	return 0;
+}
+
 static const struct file_operations mp1_file = {
 	.owner = THIS_MODULE,
 	.read = mp1_read,
 	.write = mp1_write,
+	.release = mp1_release,
 };
 
 // mp1_init - Called when module is loaded
