@@ -16,6 +16,7 @@ MODULE_DESCRIPTION("CS-423 MP1");
 
 #define DIRECTORY "mp1"
 #define FILENAME "status"
+#define MAX_STR_LEN 32
 static struct proc_dir_entry *mp1_dir, *status_file;
 LIST_HEAD(mp1_process_list);
 static struct timer_list mp1_timer;
@@ -61,7 +62,7 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	char *kbuf;
 	struct status_file_buffer *sbuf;
 	unsigned long flags;
-	size_t size = 0;
+	size_t size_limit, size = 0;
 
 	if (!access_ok(VERIFY_WRITE, buffer, count)) {
 		bytes_read = -EINVAL;
@@ -88,19 +89,21 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 		size++;
 	spin_unlock_irqrestore(&mp1_list_lock, flags);
 
-	sbuf = kmalloc(sizeof(struct status_file_buffer) + size * 32, GFP_KERNEL);
+	sbuf = kmalloc(sizeof(struct status_file_buffer) + size * MAX_STR_LEN, GFP_KERNEL);
 	if (sbuf == NULL) {
 		bytes_read = -ENOMEM;
 		goto out;
 	}
-	size *= 32;
+	size *= MAX_STR_LEN;
 	kbuf = sbuf->buf;
 	file->private_data = sbuf;
 
 	bytes_read = 0;
 	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry(proc, &mp1_process_list, elem) {
-		bytes_read += scnprintf(kbuf + bytes_read, size - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
+		size_limit = (size - MAX_STR_LEN < bytes_read) ? MAX_STR_LEN : (size - bytes_read);
+		bytes_read += scnprintf(kbuf + bytes_read, size_limit, "%d: %lu\n", proc->pid, proc->cpu_use);
+		if (bytes_read >= size) break;
 	}
 	spin_unlock_irqrestore(&mp1_list_lock, flags);
 
