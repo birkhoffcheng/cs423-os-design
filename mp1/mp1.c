@@ -64,19 +64,23 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 	unsigned long flags;
 	size_t size = 0;
 
+	// If buffer is not user writable don't even try
 	if (!access_ok(VERIFY_WRITE, buffer, count)) {
 		bytes_read = -EINVAL;
 		goto out;
 	}
 
+	// Check if the user has already read part of the buffer
 	if (*offp || file->private_data) {
 		sbuf = file->private_data;
 		size = sbuf->size;
 		kbuf = sbuf->buf;
 		if (*offp >= size) {
+			// The user has reached EOF
 			bytes_read = 0;
 		}
 		else {
+			// Copy remaining buffer to user space as requested
 			bytes_read = (size - *offp < count) ? (size - *offp) : count;
 			bytes_read -= copy_to_user(buffer, kbuf + *offp, bytes_read);
 			*offp += bytes_read;
@@ -84,6 +88,7 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 		goto out;
 	}
 
+	// Calculate list size and allocate memory accordingly
 	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry(proc, &mp1_process_list, elem)
 		size++;
@@ -94,15 +99,17 @@ static ssize_t mp1_read(struct file *file, char __user *buffer, size_t count, lo
 		bytes_read = -ENOMEM;
 		goto out;
 	}
+
+	// Read the output to a per-file buffer
 	size *= MAX_STR_LEN;
 	kbuf = sbuf->buf;
 	file->private_data = sbuf;
-
 	bytes_read = 0;
 	spin_lock_irqsave(&mp1_list_lock, flags);
 	list_for_each_entry(proc, &mp1_process_list, elem) {
 		bytes_read += scnprintf(kbuf + bytes_read, size - bytes_read, "%d: %lu\n", proc->pid, proc->cpu_use);
-		if (bytes_read >= size) break;
+		if (bytes_read >= size)
+			break;
 	}
 	spin_unlock_irqrestore(&mp1_list_lock, flags);
 
@@ -121,13 +128,22 @@ static ssize_t mp1_write(struct file *file, const char __user *buffer, size_t co
 	int error;
 	struct mp1_process *proc;
 	unsigned long flags;
-	char *kbuf = kmalloc(count + 1, GFP_KERNEL);
+	char *kbuf;
+
+	// If buffer is not user readable don't even try
+	if (!access_ok(VERIFY_READ, buffer, count)) {
+		bytes_written = -EINVAL;
+		goto out;
+	}
+
+	kbuf = kmalloc(count + 1, GFP_KERNEL);
 	if (kbuf == NULL) {
 		bytes_written = -ENOMEM;
 		goto out;
 	}
 
 	bytes_written = count - copy_from_user(kbuf, buffer, count);
+	// Some programs don't send NULL byte so add it here
 	kbuf[count] = '\0';
 	if ((error = kstrtoint(kbuf, 10, &pid))) {
 		bytes_written = error;
@@ -164,6 +180,7 @@ int __init mp1_init(void)
 {
 	int error = 0;
 
+	// Create /proc/mp1 directory
 	mp1_dir = proc_mkdir(DIRECTORY, NULL);
 	if (mp1_dir == NULL) {
 		error = -ENOMEM;
@@ -171,6 +188,7 @@ int __init mp1_init(void)
 		goto out;
 	}
 
+	// Create /proc/mp1/status entry
 	status_file = proc_create(FILENAME, 0666, mp1_dir, &mp1_file);
 	if (status_file == NULL) {
 		error = -ENOMEM;
@@ -192,11 +210,6 @@ void __exit mp1_exit(void)
 {
 	struct mp1_process *proc, *tmp;
 
-	list_for_each_entry_safe(proc, tmp, &mp1_process_list, elem) {
-		list_del(&proc->elem);
-		kfree(proc);
-	}
-
 	del_timer(&mp1_timer);
 
 	flush_workqueue(wq);
@@ -204,6 +217,12 @@ void __exit mp1_exit(void)
 
 	remove_proc_entry("status", mp1_dir);
 	remove_proc_entry("mp1", NULL);
+
+	// Clear the list last when no one can modify it
+	list_for_each_entry_safe(proc, tmp, &mp1_process_list, elem) {
+		list_del(&proc->elem);
+		kfree(proc);
+	}
 }
 
 // Register init and exit funtions
