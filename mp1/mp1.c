@@ -215,8 +215,8 @@ void __exit mp1_exit(void)
 	flush_workqueue(wq);
 	destroy_workqueue(wq);
 
-	remove_proc_entry("status", mp1_dir);
-	remove_proc_entry("mp1", NULL);
+	remove_proc_entry(FILENAME, mp1_dir);
+	remove_proc_entry(DIRECTORY, NULL);
 
 	// Clear the list last when no one can modify it
 	list_for_each_entry_safe(proc, tmp, &mp1_process_list, elem) {
