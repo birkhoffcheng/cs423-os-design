@@ -49,9 +49,22 @@ out:
 	return bytes_read;
 }
 
+static bool mp2_register(char *input) {
+	return true;
+}
+
+static bool mp2_yield(char *input) {
+	return true;
+}
+
+static bool mp2_deregister(char *input) {
+	return true;
+}
+
 static ssize_t mp_write(struct file *file, const char __user *buffer, size_t count, loff_t *offp) {
 	ssize_t bytes_written;
 	char *kbuf;
+	bool success;
 
 	if (!access_ok(VERIFY_READ, buffer, count)) {
 		bytes_written = -EINVAL;
@@ -66,6 +79,27 @@ static ssize_t mp_write(struct file *file, const char __user *buffer, size_t cou
 
 	bytes_written = count - copy_from_user(kbuf, buffer, count);
 	kbuf[count] = '\0';
+
+	if (bytes_written == 0)
+		goto free_and_out;
+
+	switch (*kbuf) {
+		case 'D':
+		case 'd':
+			success = mp2_deregister(kbuf);
+			break;
+		case 'R':
+		case 'r':
+			success = mp2_register(kbuf);
+			break;
+		case 'Y':
+		case 'y':
+			success = mp2_yield(kbuf);
+			break;
+		default:
+			success = false;
+			break;
+	}
 
 free_and_out:
 	kfree(kbuf);
