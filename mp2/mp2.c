@@ -40,12 +40,39 @@ struct mp2_task_struct {
 };
 
 static ssize_t mp_read(struct file *file, char __user *buffer, size_t count, loff_t *offp) {
-	ssize_t bytes_read = 0;
+	ssize_t bytes_read;
+	char *kbuf;
+	struct mp2_task_struct *curr;
+	unsigned long flags;
 
 	if (!access_ok(VERIFY_WRITE, buffer, count)) {
 		bytes_read = -EINVAL;
 		goto out;
 	}
+
+	if (*offp) {
+		bytes_read = 0;
+		goto out;
+	}
+
+	kbuf = kmalloc(count, GFP_KERNEL);
+	if (kbuf == NULL) {
+		bytes_read = -ENOMEM;
+		goto out;
+	}
+
+	bytes_read = 0;
+	spin_lock_irqsave(&process_list_lock, flags);
+	list_for_each_entry(curr, &process_list, elem) {
+		bytes_read += scnprintf(kbuf + bytes_read, count - bytes_read, "%d: %lu, %lu\n", curr->pid, curr->period_ms, curr->runtime_ms);
+		if (bytes_read >= count)
+			break;
+	}
+	spin_unlock_irqrestore(&process_list_lock, flags);
+
+	bytes_read -= copy_to_user(buffer, kbuf, bytes_read);
+	*offp += bytes_read;
+	kfree(kbuf);
 
 out:
 	return bytes_read;
