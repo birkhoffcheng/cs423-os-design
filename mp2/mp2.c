@@ -5,6 +5,7 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
+#include <linux/slab_def.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
@@ -19,7 +20,7 @@ MODULE_DESCRIPTION("CS-423 MP2");
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
-static kmem_cache_t *kmem_cache;
+static struct kmem_cache *kmem_cache;
 
 enum task_state {
 	SLEEPING,
@@ -93,10 +94,11 @@ static bool mp2_register(char *input) {
 				break;
 			}
 		}
-		if (list_is_last(curr, &process_list))
+		if (list_is_last(&curr->elem, &process_list))
 			list_add_tail(&task->elem, &process_list);
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
+	success = true;
 out:
 	return success;
 }
@@ -112,7 +114,7 @@ static bool mp2_deregister(char *input) {
 static ssize_t mp_write(struct file *file, const char __user *buffer, size_t count, loff_t *offp) {
 	ssize_t bytes_written;
 	char *kbuf;
-	bool success;
+	bool success = true;
 
 	if (!access_ok(VERIFY_READ, buffer, count)) {
 		bytes_written = -EINVAL;
@@ -178,7 +180,7 @@ int __init mp_init(void) {
 		goto out;
 	}
 
-	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL, NULL);
+	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL);
 out:
 	return error;
 }
