@@ -19,6 +19,7 @@ MODULE_DESCRIPTION("CS-423 MP2");
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
+static kmem_cache_t *kmem_cache;
 
 enum task_state {
 	SLEEPING,
@@ -49,8 +50,55 @@ out:
 	return bytes_read;
 }
 
+static void wake_up_task(unsigned long arg) {
+	pid_t pid;
+	pid = arg;
+	// TODO: wake up task
+}
+
 static bool mp2_register(char *input) {
-	return true;
+	pid_t pid;
+	unsigned long period_ms, runtime_ms;
+	struct task_struct *linux_task;
+	struct mp2_task_struct *task, *curr;
+	bool success;
+	unsigned long flags;
+	if (sscanf(input, "R,%d,%lu,%lu", &pid, &period_ms, &runtime_ms) < 3) {
+		success = false;
+		goto out;
+	}
+	linux_task = find_task_by_pid(pid);
+	if (linux_task == NULL) {
+		success = false;
+		goto out;
+	}
+
+	task = kmem_cache_alloc(kmem_cache, GFP_KERNEL);
+	task->pid = pid;
+	task->linux_task = linux_task;
+	setup_timer(&task->wakeup_timer, wake_up_task, pid);
+	task->period_ms = period_ms;
+	task->runtime_ms = runtime_ms;
+	task->state = SLEEPING;
+
+	spin_lock_irqsave(&process_list_lock, flags);
+	if (list_empty(&process_list)) {
+		list_add(&task->elem, &process_list);
+	}
+	else {
+		// Keep list sorted so scheduling takes O(1)
+		list_for_each_entry(curr, &process_list, elem) {
+			if (curr->period_ms > period_ms) {
+				list_add_tail(&task->elem, &curr->elem);
+				break;
+			}
+		}
+		if (list_is_last(curr, &process_list))
+			list_add_tail(&task->elem, &process_list);
+	}
+	spin_unlock_irqrestore(&process_list_lock, flags);
+out:
+	return success;
 }
 
 static bool mp2_yield(char *input) {
@@ -104,7 +152,7 @@ static ssize_t mp_write(struct file *file, const char __user *buffer, size_t cou
 free_and_out:
 	kfree(kbuf);
 out:
-	return bytes_written;
+	return (success) ? bytes_written : -EINVAL;
 }
 
 static const struct file_operations mp_file_op = {
@@ -130,6 +178,7 @@ int __init mp_init(void) {
 		goto out;
 	}
 
+	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL, NULL);
 out:
 	return error;
 }
@@ -137,6 +186,7 @@ out:
 void __exit mp_exit(void) {
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
+	kmem_cache_destroy(kmem_cache);
 }
 
 // Register init and exit funtions
