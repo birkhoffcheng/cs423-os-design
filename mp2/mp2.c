@@ -64,10 +64,12 @@ static bool mp2_register(char *input) {
 	struct mp2_task_struct *task, *curr;
 	bool success;
 	unsigned long flags;
+
 	if (sscanf(input, "R,%d,%lu,%lu", &pid, &period_ms, &runtime_ms) < 3) {
 		success = false;
 		goto out;
 	}
+
 	linux_task = find_task_by_pid(pid);
 	if (linux_task == NULL) {
 		success = false;
@@ -86,6 +88,9 @@ static bool mp2_register(char *input) {
 	if (list_empty(&process_list)) {
 		list_add(&task->elem, &process_list);
 	}
+	else if (list_last_entry(&process_list, struct mp2_task_struct, elem)->period_ms <= period_ms) {
+		list_add_tail(&task->elem, &process_list);
+	}
 	else {
 		// Keep list sorted so scheduling takes O(1)
 		list_for_each_entry(curr, &process_list, elem) {
@@ -94,8 +99,6 @@ static bool mp2_register(char *input) {
 				break;
 			}
 		}
-		if (list_is_last(&curr->elem, &process_list))
-			list_add_tail(&task->elem, &process_list);
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 	success = true;
@@ -108,7 +111,28 @@ static bool mp2_yield(char *input) {
 }
 
 static bool mp2_deregister(char *input) {
-	return true;
+	bool success;
+	pid_t pid;
+	unsigned long flags;
+	struct mp2_task_struct *curr, *tmp;
+
+	if (sscanf(input, "D,%d", &pid) < 1) {
+		success = false;
+		goto out;
+	}
+
+	spin_lock_irqsave(&process_list_lock, flags);
+	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
+		if (curr->pid == pid) {
+			list_del(&curr->elem);
+			del_timer(&curr->wakeup_timer);
+			kmem_cache_free(kmem_cache, curr);
+		}
+	}
+	spin_unlock_irqrestore(&process_list_lock, flags);
+	success = true;
+out:
+	return success;
 }
 
 static ssize_t mp_write(struct file *file, const char __user *buffer, size_t count, loff_t *offp) {
@@ -186,8 +210,15 @@ out:
 }
 
 void __exit mp_exit(void) {
+	struct mp2_task_struct *curr, *tmp;
+
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
+	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
+		list_del(&curr->elem);
+		del_timer(&curr->wakeup_timer);
+		kmem_cache_free(kmem_cache, curr);
+	}
 	kmem_cache_destroy(kmem_cache);
 }
 
