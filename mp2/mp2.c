@@ -86,7 +86,6 @@ static int wake_up_task(void *arg) {
 	struct mp2_task_struct *curr, *task;
 	struct sched_param sparam;
 	while (!kthread_should_stop()) {
-		set_current_state(TASK_RUNNING);
 		task = NULL;
 		spin_lock_irqsave(&process_list_lock, flags);
 		list_for_each_entry(curr, &process_list, elem) {
@@ -96,6 +95,10 @@ static int wake_up_task(void *arg) {
 			}
 		}
 		spin_unlock_irqrestore(&process_list_lock, flags);
+
+		if (task && mp2_current_task && task->period_ms > mp2_current_task->period_ms) {
+			goto sleep;
+		}
 
 		if (task != NULL) {
 			task->state = RUNNING;
@@ -111,6 +114,7 @@ static int wake_up_task(void *arg) {
 		}
 
 		mp2_current_task = task;
+sleep:
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 	}
@@ -121,7 +125,7 @@ static void wake_up_timer(unsigned long arg) {
 	struct mp2_task_struct *task = (struct mp2_task_struct*) arg;
 	task->state = READY;
 	task->deadline_jiff += msecs_to_jiffies(task->period_ms);
-	set_task_state(dispatching_thread, TASK_RUNNING);
+	wake_up_process(dispatching_thread);
 }
 
 static bool mp2_register(char *input) {
@@ -263,15 +267,12 @@ static ssize_t mp_write(struct file *file, const char __user *buffer, size_t cou
 
 	switch (*kbuf) {
 		case 'D':
-		case 'd':
 			success = mp2_deregister(kbuf);
 			break;
 		case 'R':
-		case 'r':
 			success = mp2_register(kbuf);
 			break;
 		case 'Y':
-		case 'y':
 			success = mp2_yield(kbuf);
 			break;
 		default:
