@@ -120,7 +120,7 @@ static int wake_up_task(void *arg) {
 static void wake_up_timer(unsigned long arg) {
 	struct mp2_task_struct *task = (struct mp2_task_struct*) arg;
 	task->state = READY;
-	mod_timer(&task->wakeup_timer, jiffies + msecs_to_jiffies(task->period_ms));
+	task->deadline_jiff += msecs_to_jiffies(task->period_ms);
 	set_task_state(dispatching_thread, TASK_RUNNING);
 }
 
@@ -132,14 +132,13 @@ static bool mp2_register(char *input) {
 	bool success;
 	unsigned long flags;
 
+	success = false;
 	if (sscanf(input, "R,%d,%lu,%lu", &pid, &period_ms, &runtime_ms) < 3) {
-		success = false;
 		goto out;
 	}
 
 	linux_task = find_task_by_pid(pid);
 	if (linux_task == NULL) {
-		success = false;
 		goto out;
 	}
 
@@ -149,6 +148,7 @@ static bool mp2_register(char *input) {
 	setup_timer(&task->wakeup_timer, wake_up_timer, (unsigned long) task);
 	task->period_ms = period_ms;
 	task->runtime_ms = runtime_ms;
+	task->deadline_jiff = 0;
 	task->state = SLEEPING;
 
 	spin_lock_irqsave(&process_list_lock, flags);
@@ -159,7 +159,6 @@ static bool mp2_register(char *input) {
 		list_add_tail(&task->elem, &process_list);
 	}
 	else {
-		// Keep list sorted so scheduling takes O(1)
 		list_for_each_entry(curr, &process_list, elem) {
 			if (curr->period_ms > period_ms) {
 				list_add_tail(&task->elem, &curr->elem);
@@ -169,12 +168,49 @@ static bool mp2_register(char *input) {
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 	success = true;
+
 out:
 	return success;
 }
 
 static bool mp2_yield(char *input) {
-	return true;
+	bool success;
+	pid_t pid;
+	unsigned long flags;
+	struct mp2_task_struct *curr, *task = NULL;
+
+	success = false;
+	if (sscanf(input, "Y,%d", &pid) < 1) {
+		goto out;
+	}
+
+	spin_lock_irqsave(&process_list_lock, flags);
+	list_for_each_entry(curr, &process_list, elem) {
+		if (curr->pid == pid) {
+			task = curr;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&process_list_lock, flags);
+
+	if (task == NULL) {
+		goto out;
+	}
+
+	task->state = SLEEPING;
+	if (task->deadline_jiff > 0) {
+		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+	}
+	else {
+		task->deadline_jiff = jiffies + msecs_to_jiffies(task->period_ms);
+		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+	}
+
+	set_task_state(task->linux_task, TASK_UNINTERRUPTIBLE);
+	success = true;
+
+out:
+	return success;
 }
 
 static bool mp2_deregister(char *input) {
@@ -183,8 +219,8 @@ static bool mp2_deregister(char *input) {
 	unsigned long flags;
 	struct mp2_task_struct *curr, *tmp;
 
+	success = false;
 	if (sscanf(input, "D,%d", &pid) < 1) {
-		success = false;
 		goto out;
 	}
 
@@ -198,6 +234,7 @@ static bool mp2_deregister(char *input) {
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 	success = true;
+
 out:
 	return success;
 }
@@ -272,7 +309,8 @@ int __init mp_init(void) {
 	}
 
 	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL);
-	dispatching_thread = kthread_run(wake_up_task, NULL, "Dispatching thread");
+	dispatching_thread = kthread_run(wake_up_task, NULL, "mp2-dispatch");
+
 out:
 	return error;
 }
