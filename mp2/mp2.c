@@ -9,6 +9,7 @@
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
+#include <linux/kthread.h>
 #include "mp2_given.h"
 
 MODULE_LICENSE("GPL");
@@ -22,7 +23,7 @@ static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
 static struct kmem_cache *kmem_cache;
 static struct task_struct *dispatching_thread;
-static struct mp2_task_struct *current_task;
+static struct mp2_task_struct *mp2_current_task;
 
 enum task_state {
 	SLEEPING,
@@ -103,13 +104,13 @@ static int wake_up_task(void *arg) {
 			sched_setscheduler(task->linux_task, SCHED_FIFO, &sparam);
 		}
 
-		if (current_task != NULL) {
-			current_task->state = READY;
+		if (mp2_current_task != NULL) {
+			mp2_current_task->state = READY;
 			sparam.sched_priority = 0;
-			sched_setscheduler(current_task->linux_task, SCHED_NORMAL, &sparam);
+			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
 		}
 
-		current_task = task;
+		mp2_current_task = task;
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 	}
@@ -117,7 +118,7 @@ static int wake_up_task(void *arg) {
 }
 
 static void wake_up_timer(unsigned long arg) {
-	struct mp2_task_struct *task = arg;
+	struct mp2_task_struct *task = (struct mp2_task_struct*) arg;
 	task->state = READY;
 	mod_timer(&task->wakeup_timer, jiffies + msecs_to_jiffies(task->period_ms));
 	set_task_state(dispatching_thread, TASK_RUNNING);
