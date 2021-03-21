@@ -21,6 +21,8 @@ static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
 static struct kmem_cache *kmem_cache;
+static struct task_struct *dispatching_thread;
+static struct mp2_task_struct *current_task;
 
 enum task_state {
 	SLEEPING,
@@ -78,10 +80,47 @@ out:
 	return bytes_read;
 }
 
-static void wake_up_task(unsigned long arg) {
-	pid_t pid;
-	pid = arg;
-	// TODO: wake up task
+static int wake_up_task(void *arg) {
+	unsigned long flags;
+	struct mp2_task_struct *curr, *task;
+	struct sched_param sparam;
+	while (!kthread_should_stop()) {
+		set_current_state(TASK_RUNNING);
+		task = NULL;
+		spin_lock_irqsave(&process_list_lock, flags);
+		list_for_each_entry(curr, &process_list, elem) {
+			if (curr->state == READY) {
+				task = curr;
+				break;
+			}
+		}
+		spin_unlock_irqrestore(&process_list_lock, flags);
+
+		if (task != NULL) {
+			task->state = RUNNING;
+			wake_up_process(task->linux_task);
+			sparam.sched_priority = 99;
+			sched_setscheduler(task->linux_task, SCHED_FIFO, &sparam);
+		}
+
+		if (current_task != NULL) {
+			current_task->state = READY;
+			sparam.sched_priority = 0;
+			sched_setscheduler(current_task->linux_task, SCHED_NORMAL, &sparam);
+		}
+
+		current_task = task;
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
+	}
+	return 0;
+}
+
+static void wake_up_timer(unsigned long arg) {
+	struct mp2_task_struct *task = arg;
+	task->state = READY;
+	mod_timer(&task->wakeup_timer, jiffies + msecs_to_jiffies(task->period_ms));
+	set_task_state(dispatching_thread, TASK_RUNNING);
 }
 
 static bool mp2_register(char *input) {
@@ -106,7 +145,7 @@ static bool mp2_register(char *input) {
 	task = kmem_cache_alloc(kmem_cache, GFP_KERNEL);
 	task->pid = pid;
 	task->linux_task = linux_task;
-	setup_timer(&task->wakeup_timer, wake_up_task, pid);
+	setup_timer(&task->wakeup_timer, wake_up_timer, (unsigned long) task);
 	task->period_ms = period_ms;
 	task->runtime_ms = runtime_ms;
 	task->state = SLEEPING;
@@ -232,6 +271,7 @@ int __init mp_init(void) {
 	}
 
 	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL);
+	dispatching_thread = kthread_run(wake_up_task, NULL, "Dispatching thread");
 out:
 	return error;
 }
@@ -247,6 +287,7 @@ void __exit mp_exit(void) {
 		kmem_cache_free(kmem_cache, curr);
 	}
 	kmem_cache_destroy(kmem_cache);
+	kthread_stop(dispatching_thread);
 }
 
 // Register init and exit funtions
