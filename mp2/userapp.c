@@ -32,12 +32,13 @@ int main(int argc, char **argv) {
 	fp = fopen("/proc/mp2/status", "w");
 	for (i = rand() & 0xFF; i > 0; i--) {
 		wakeup_time = time(NULL);
-		n = 0;
-		for (random = rand() % 64; random >= 0; random--)
+		n = 1;
+		for (random = rand() % 64; random > 0; random--)
 			n *= random;
 		process_time = time(NULL) - wakeup_time;
 		printf("wakeup: %ld, process: %ld\n", wakeup_time, process_time);
 		fprintf(fp, "Y, %d", pid);
+		fflush(fp);
 	}
 	fprintf(fp, "D, %d", pid);
 	fclose(fp);
