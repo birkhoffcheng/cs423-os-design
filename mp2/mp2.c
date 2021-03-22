@@ -103,13 +103,13 @@ static int wake_up_task(void *arg) {
 		if (task != NULL) {
 			task->state = RUNNING;
 			wake_up_process(task->linux_task);
-			sparam.sched_priority = 99;
+			sparam.sched_priority = 0;
 			sched_setscheduler(task->linux_task, SCHED_FIFO, &sparam);
 		}
 
 		if (mp2_current_task != NULL) {
 			mp2_current_task->state = READY;
-			sparam.sched_priority = 0;
+			sparam.sched_priority = 99;
 			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
 		}
 
@@ -203,7 +203,17 @@ static bool mp2_yield(char *input) {
 
 	task->state = SLEEPING;
 	if (task->deadline_jiff > 0) {
-		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+		if (jiffies < task->deadline_jiff) {
+			mod_timer(&task->wakeup_timer, task->deadline_jiff);
+		}
+		else {
+			task->state = READY;
+			task->deadline_jiff += ((jiffies - task->deadline_jiff) / msecs_to_jiffies(task->period_ms) + 1) * msecs_to_jiffies(task->period_ms);
+			mod_timer(&task->wakeup_timer, task->deadline_jiff);
+			success = true;
+			wake_up_process(dispatching_thread);
+			goto out;
+		}
 	}
 	else {
 		task->deadline_jiff = jiffies + msecs_to_jiffies(task->period_ms);
@@ -222,6 +232,7 @@ static bool mp2_deregister(char *input) {
 	pid_t pid;
 	unsigned long flags;
 	struct mp2_task_struct *curr, *tmp;
+	struct sched_param sparam;
 
 	success = false;
 	if (sscanf(input, "D,%d", &pid) < 1) {
@@ -233,10 +244,22 @@ static bool mp2_deregister(char *input) {
 		if (curr->pid == pid) {
 			list_del(&curr->elem);
 			del_timer(&curr->wakeup_timer);
+			sparam.sched_priority = 20;
+			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
+			set_task_state(curr->linux_task, TASK_RUNNING);
+			wake_up_process(curr->linux_task);
 			kmem_cache_free(kmem_cache, curr);
+			if (mp2_current_task == curr) {
+				mp2_current_task = NULL;
+			}
 		}
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
+
+	if (mp2_current_task) {
+		wake_up_process(dispatching_thread);
+	}
+
 	success = true;
 
 out:
@@ -318,12 +341,17 @@ out:
 
 void __exit mp_exit(void) {
 	struct mp2_task_struct *curr, *tmp;
+	struct sched_param sparam;
 
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
 	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
 		list_del(&curr->elem);
 		del_timer(&curr->wakeup_timer);
+		sparam.sched_priority = 20;
+		sched_setscheduler(curr->linux_task, SCHED_NORMAL, &sparam);
+		set_task_state(curr->linux_task, TASK_RUNNING);
+		wake_up_process(curr->linux_task);
 		kmem_cache_free(kmem_cache, curr);
 	}
 	kmem_cache_destroy(kmem_cache);
