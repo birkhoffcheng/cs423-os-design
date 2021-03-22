@@ -98,6 +98,7 @@ static int dispatcher(void *arg) {
 			}
 		}
 
+		// If current task has higher priority than the selected task or they are the same task
 		if (task && mp2_current_task && (task->period_ms > mp2_current_task->period_ms || mp2_current_task == task)) {
 			goto sleep;
 		}
@@ -167,6 +168,7 @@ static bool mp2_register(char *input) {
 		list_add_tail(&task->elem, &process_list);
 	}
 	else {
+		// Keep list sorted by priority so scheduling becomes easier
 		list_for_each_entry(curr, &process_list, elem) {
 			if (curr->period_ms > period_ms) {
 				list_add_tail(&task->elem, &curr->elem);
@@ -251,6 +253,7 @@ static bool mp2_deregister(char *input) {
 			del_timer(&curr->wakeup_timer);
 			utilization -= curr->runtime_ms * NUMERATOR / curr->period_ms;
 			sparam.sched_priority = 20;
+			// Resume normal Linux scheduling
 			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
 			set_task_state(curr->linux_task, TASK_RUNNING);
 			wake_up_process(curr->linux_task);
