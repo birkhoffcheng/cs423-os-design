@@ -18,12 +18,15 @@ MODULE_DESCRIPTION("CS-423 MP2");
 
 #define DIRECTORY "mp2"
 #define FILENAME "status"
+#define MAX_UTIL 6930
+#define NUMERATOR 10000
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
 static struct kmem_cache *kmem_cache;
 static struct task_struct *dispatching_thread;
 static struct mp2_task_struct *mp2_current_task;
+static unsigned long utilization;
 
 enum task_state {
 	SLEEPING,
@@ -142,10 +145,11 @@ static bool mp2_register(char *input) {
 	}
 
 	linux_task = find_task_by_pid(pid);
-	if (linux_task == NULL) {
+	if (linux_task == NULL || utilization + runtime_ms * NUMERATOR / period_ms > MAX_UTIL) {
 		goto out;
 	}
 
+	utilization += runtime_ms * NUMERATOR / period_ms;
 	task = kmem_cache_alloc(kmem_cache, GFP_KERNEL);
 	task->pid = pid;
 	task->linux_task = linux_task;
@@ -245,6 +249,7 @@ static bool mp2_deregister(char *input) {
 		if (curr->pid == pid) {
 			list_del(&curr->elem);
 			del_timer(&curr->wakeup_timer);
+			utilization -= curr->runtime_ms * NUMERATOR / curr->period_ms;
 			sparam.sched_priority = 20;
 			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
 			set_task_state(curr->linux_task, TASK_RUNNING);
@@ -253,15 +258,16 @@ static bool mp2_deregister(char *input) {
 			if (mp2_current_task == curr) {
 				mp2_current_task = NULL;
 			}
+			break;
 		}
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 
 	if (!mp2_current_task) {
 		wake_up_process(dispatching_thread);
-		schedule();
 	}
 
+	schedule();
 	success = true;
 
 out:
@@ -320,6 +326,7 @@ static const struct file_operations mp_file_op = {
 int __init mp_init(void) {
 	int error = 0;
 
+	utilization = 0;
 	mp_dir = proc_mkdir(DIRECTORY, NULL);
 	if (mp_dir == NULL) {
 		error = -ENOMEM;
