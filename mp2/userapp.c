@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
 		for (random = rand() % 64; random >= 0; random--)
 			n *= random;
 		process_time = time(NULL) - wakeup_time;
-		printf("wakeup: %d, process: %d\n", wakeup_time, process_time);
+		printf("wakeup: %ld, process: %ld\n", wakeup_time, process_time);
 		fprintf(fp, "Y, %d", pid);
 	}
 	fprintf(fp, "D, %d", pid);
