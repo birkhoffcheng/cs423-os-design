@@ -81,7 +81,7 @@ out:
 	return bytes_read;
 }
 
-static int wake_up_task(void *arg) {
+static int dispatcher(void *arg) {
 	unsigned long flags;
 	struct mp2_task_struct *curr, *task;
 	struct sched_param sparam;
@@ -89,32 +89,32 @@ static int wake_up_task(void *arg) {
 		task = NULL;
 		spin_lock_irqsave(&process_list_lock, flags);
 		list_for_each_entry(curr, &process_list, elem) {
-			if (curr->state == READY) {
+			if (curr->state == READY || curr->state == RUNNING) {
 				task = curr;
 				break;
 			}
 		}
-		spin_unlock_irqrestore(&process_list_lock, flags);
 
-		if (task && mp2_current_task && task->period_ms > mp2_current_task->period_ms) {
+		if (task && mp2_current_task && (task->period_ms > mp2_current_task->period_ms || mp2_current_task == task)) {
 			goto sleep;
 		}
 
 		if (task != NULL) {
 			task->state = RUNNING;
 			wake_up_process(task->linux_task);
-			sparam.sched_priority = 0;
+			sparam.sched_priority = 99;
 			sched_setscheduler(task->linux_task, SCHED_FIFO, &sparam);
 		}
 
 		if (mp2_current_task != NULL) {
 			mp2_current_task->state = READY;
-			sparam.sched_priority = 99;
+			sparam.sched_priority = 0;
 			sched_setscheduler(mp2_current_task->linux_task, SCHED_NORMAL, &sparam);
 		}
 
 		mp2_current_task = task;
 sleep:
+		spin_unlock_irqrestore(&process_list_lock, flags);
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 	}
@@ -195,34 +195,35 @@ static bool mp2_yield(char *input) {
 			break;
 		}
 	}
-	spin_unlock_irqrestore(&process_list_lock, flags);
 
 	if (task == NULL) {
+		spin_unlock_irqrestore(&process_list_lock, flags);
 		goto out;
 	}
 
 	task->state = SLEEPING;
-	if (task->deadline_jiff > 0) {
-		if (jiffies < task->deadline_jiff) {
-			mod_timer(&task->wakeup_timer, task->deadline_jiff);
-		}
-		else {
-			task->state = READY;
-			task->deadline_jiff += ((jiffies - task->deadline_jiff) / msecs_to_jiffies(task->period_ms) + 1) * msecs_to_jiffies(task->period_ms);
-			mod_timer(&task->wakeup_timer, task->deadline_jiff);
-			success = true;
-			wake_up_process(dispatching_thread);
-			goto out;
-		}
-	}
-	else {
+	if (task->deadline_jiff == 0) {
 		task->deadline_jiff = jiffies + msecs_to_jiffies(task->period_ms);
 		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+	}
+	else if (jiffies < task->deadline_jiff) {
+		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+	}
+	else {
+		task->state = READY;
+		task->deadline_jiff += ((jiffies - task->deadline_jiff) / msecs_to_jiffies(task->period_ms) + 1) * msecs_to_jiffies(task->period_ms);
+		mod_timer(&task->wakeup_timer, task->deadline_jiff);
+		success = true;
+		goto schedule_and_out;
 	}
 
 	set_task_state(task->linux_task, TASK_UNINTERRUPTIBLE);
 	success = true;
 
+schedule_and_out:
+	spin_unlock_irqrestore(&process_list_lock, flags);
+	wake_up_process(dispatching_thread);
+	schedule();
 out:
 	return success;
 }
@@ -258,6 +259,7 @@ static bool mp2_deregister(char *input) {
 
 	if (!mp2_current_task) {
 		wake_up_process(dispatching_thread);
+		schedule();
 	}
 
 	success = true;
@@ -333,7 +335,7 @@ int __init mp_init(void) {
 	}
 
 	kmem_cache = kmem_cache_create(DIRECTORY, sizeof(struct mp2_task_struct), 0, 0, NULL);
-	dispatching_thread = kthread_run(wake_up_task, NULL, "mp2-dispatch");
+	dispatching_thread = kthread_run(dispatcher, NULL, "mp2-dispatch");
 
 out:
 	return error;
