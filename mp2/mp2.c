@@ -256,7 +256,7 @@ static bool mp2_deregister(char *input) {
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 
-	if (mp2_current_task) {
+	if (!mp2_current_task) {
 		wake_up_process(dispatching_thread);
 	}
 
