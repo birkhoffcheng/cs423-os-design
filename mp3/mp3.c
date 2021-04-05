@@ -5,11 +5,13 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
-#include <linux/slab_def.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
 #include <linux/kthread.h>
+#include <linux/mm.h>
+#include <linux/vmalloc.h>
+#include <linux/page-flags.h>
 #include "mp3_given.h"
 
 MODULE_LICENSE("GPL");
@@ -18,32 +20,62 @@ MODULE_DESCRIPTION("CS-423 MP3");
 
 #define DIRECTORY "mp3"
 #define FILENAME "status"
+#define BUFFER_SIZE 128 * 4096
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
+static DEFINE_SPINLOCK(buffer_lock);
 static struct workqueue_struct *wq;
 static void update_mem_status(struct work_struct *work);
 static DECLARE_DELAYED_WORK(mp_work, update_mem_status);
+static unsigned long *buffer;
+static unsigned long buffer_index;
 
 struct mp3_task_struct {
 	pid_t pid;
 	struct task_struct *linux_task;
-	unsigned long utilization;
-	unsigned long major_faults;
-	unsigned long minor_faults;
+	unsigned long util;
+	unsigned long maj_flt;
+	unsigned long min_flt;
 	struct list_head elem;
 };
 
 static void update_mem_status(struct work_struct *work) {
-	unsigned long flags;
+	unsigned long flags, maj_flt, min_flt, utime, stime, total_maj_flt, total_min_flt, total_util;
+	struct mp3_task_struct *curr, *tmp;
+
+	total_maj_flt = 0;
+	total_min_flt = 0;
+	total_util = 0;
 
 	spin_lock_irqsave(&process_list_lock, flags);
 	if (!list_empty(&process_list)) {
 		queue_delayed_work(wq, &mp_work, msecs_to_jiffies(50));
 	}
-	// TODO update memory status of every process
+
+	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
+		if (get_cpu_use(curr->pid, &min_flt, &maj_flt, &utime, &stime) == 0) {
+			curr->maj_flt += maj_flt;
+			curr->min_flt += min_flt;
+			curr->util += utime + stime;
+			total_maj_flt += curr->maj_flt;
+			total_min_flt += curr->min_flt;
+			total_util += curr->util;
+		}
+		else {
+			list_del(&curr->elem);
+			kfree(curr);
+		}
+	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
-	printk("workqueue work run\n");
+
+	spin_lock_irqsave(&buffer_lock, flags);
+	buffer[buffer_index++] = jiffies;
+	buffer[buffer_index++] = total_min_flt;
+	buffer[buffer_index++] = total_maj_flt;
+	buffer[buffer_index++] = total_util;
+	buffer_index %= BUFFER_SIZE / sizeof(unsigned long);
+	spin_unlock_irqrestore(&buffer_lock, flags);
 }
 
 static ssize_t mp_read(struct file *file, char __user *buffer, size_t count, loff_t *offp) {
@@ -205,6 +237,8 @@ int __init mp_init(void) {
 	}
 
 	wq = create_workqueue("mp3");
+	buffer = vmalloc(BUFFER_SIZE);
+	buffer_index = 0;
 
 out:
 	return error;
@@ -212,15 +246,19 @@ out:
 
 void __exit mp_exit(void) {
 	struct mp3_task_struct *curr, *tmp;
+	unsigned long flags;
 
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
+	flush_workqueue(wq);
+	destroy_workqueue(wq);
+	spin_lock_irqsave(&process_list_lock, flags);
 	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
 		list_del(&curr->elem);
 		kfree(curr);
 	}
-	flush_workqueue(wq);
-	destroy_workqueue(wq);
+	spin_unlock_irqrestore(&process_list_lock, flags);
+	vfree(buffer);
 }
 
 // Register init and exit funtions
