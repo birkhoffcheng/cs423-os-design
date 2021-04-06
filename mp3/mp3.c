@@ -29,6 +29,7 @@ static DEFINE_SPINLOCK(buffer_lock);
 static struct workqueue_struct *wq;
 static void update_mem_status(struct work_struct *work);
 static DECLARE_DELAYED_WORK(mp_work, update_mem_status);
+static unsigned long delay_jiffies;
 static unsigned long *buffer;
 static unsigned long buffer_index;
 
@@ -51,7 +52,7 @@ static void update_mem_status(struct work_struct *work) {
 
 	spin_lock_irqsave(&process_list_lock, flags);
 	if (!list_empty(&process_list)) {
-		queue_delayed_work(wq, &mp_work, msecs_to_jiffies(50));
+		queue_delayed_work(wq, &mp_work, delay_jiffies);
 	}
 
 	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
@@ -138,10 +139,11 @@ static bool mp3_register(char *input) {
 	task = kmalloc(sizeof(struct mp3_task_struct), GFP_KERNEL);
 	task->pid = pid;
 	task->linux_task = linux_task;
+	delay_jiffies = msecs_to_jiffies(50);
 
 	spin_lock_irqsave(&process_list_lock, flags);
 	if (list_empty(&process_list)) {
-		queue_delayed_work(wq, &mp_work, msecs_to_jiffies(50));
+		queue_delayed_work(wq, &mp_work, delay_jiffies);
 	}
 	list_add_tail(&task->elem, &process_list);
 	spin_unlock_irqrestore(&process_list_lock, flags);
