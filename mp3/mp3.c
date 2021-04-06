@@ -11,7 +11,8 @@
 #include <linux/kthread.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
-#include <linux/page-flags.h>
+#include <linux/fs.h>
+#include <linux/cdev.h>
 #include "mp3_given.h"
 
 MODULE_LICENSE("GPL");
@@ -20,6 +21,7 @@ MODULE_DESCRIPTION("CS-423 MP3");
 
 #define DIRECTORY "mp3"
 #define FILENAME "status"
+#define DEV_NAME "pf_profiler"
 #define NUM_PAGES 128
 #define BUFFER_SIZE NUM_PAGES * PAGE_SIZE
 static struct proc_dir_entry *mp_dir, *status_file;
@@ -32,6 +34,8 @@ static DECLARE_DELAYED_WORK(mp_work, update_mem_status);
 static unsigned long delay_jiffies;
 static unsigned long *buffer;
 static unsigned long buffer_index;
+static dev_t mp_dev;
+static struct cdev mp_cdev;
 
 struct mp3_task_struct {
 	pid_t pid;
@@ -224,6 +228,35 @@ static const struct file_operations mp_file_op = {
 	.write = mp_write,
 };
 
+int mp_cdev_mmap(struct file *file, struct vm_area_struct *vma) {
+	int res;
+	unsigned long i, pfn, start = vma->vm_start, length = vma->vm_end - vma->vm_start;
+
+	if (length > BUFFER_SIZE) {
+		res = -EINVAL;
+		goto out;
+	}
+
+	for (i = 0; i < length; i += PAGE_SIZE) {
+		pfn = vmalloc_to_pfn((char *)buffer + i);
+		res = remap_pfn_range(vma, start + i, pfn, PAGE_SIZE, vma->vm_page_prot);
+		if (res < 0)
+			goto out;
+	}
+
+	res = 0;
+
+out:
+	return res;
+}
+
+static const struct file_operations mp_cdev_op = {
+	.owner = THIS_MODULE,
+	.open = NULL,
+	.release = NULL,
+	.mmap = mp_cdev_mmap
+};
+
 int __init mp_init(void) {
 	size_t i;
 	int error = 0;
@@ -239,6 +272,10 @@ int __init mp_init(void) {
 		error = -ENOMEM;
 		goto out;
 	}
+
+	register_chrdev_region(mp_dev, 1, DEV_NAME);
+	cdev_init(&mp_cdev, &mp_cdev_op);
+	cdev_add(&mp_cdev, mp_dev, 1);
 
 	wq = create_workqueue("mp3");
 	buffer = vmalloc(BUFFER_SIZE);
@@ -258,6 +295,8 @@ void __exit mp_exit(void) {
 
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
+	cdev_del(&mp_cdev);
+	unregister_chrdev_region(mp_dev, 1);
 	if (delayed_work_pending(&mp_work)) {
 		cancel_delayed_work_sync(&mp_work);
 	}
