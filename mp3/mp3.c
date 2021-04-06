@@ -273,7 +273,7 @@ int __init mp_init(void) {
 		goto out;
 	}
 
-	register_chrdev_region(mp_dev, 1, DEV_NAME);
+	alloc_chrdev_region(&mp_dev, 0, 1, DEV_NAME);
 	cdev_init(&mp_cdev, &mp_cdev_op);
 	cdev_add(&mp_cdev, mp_dev, 1);
 

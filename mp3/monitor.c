@@ -23,13 +23,13 @@ void *buf_init(char *fname)
   if(buf_fd == -1){
     buf_len = NPAGES * getpagesize();
     if ((buf_fd=open(fname, O_RDWR|O_SYNC))<0){
-        printf("file open error. %s\n", fname);
+        perror("open");
         return NULL;
     }
   }
   kadr = mmap(0, buf_len, PROT_READ|PROT_WRITE, MAP_SHARED, buf_fd, 0);
   if (kadr == MAP_FAILED){
-      printf("buf file open error.\n");
+      perror("mmap");
       return NULL;
   }
 
@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
   buf = buf_init("node");
   if(!buf)
     return -1;
-  
+
   // Read and print profiled data
   for(index=0; index<BUFD_MAX; index++)
     if(buf[index] != -1) break;
@@ -88,4 +88,3 @@ int main(int argc, char* argv[])
   // Close the char device
   buf_exit();
 }
-
