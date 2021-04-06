@@ -20,7 +20,8 @@ MODULE_DESCRIPTION("CS-423 MP3");
 
 #define DIRECTORY "mp3"
 #define FILENAME "status"
-#define BUFFER_SIZE 128 * 4096
+#define NUM_PAGES 128
+#define BUFFER_SIZE NUM_PAGES * PAGE_SIZE
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
@@ -222,6 +223,7 @@ static const struct file_operations mp_file_op = {
 };
 
 int __init mp_init(void) {
+	size_t i;
 	int error = 0;
 
 	mp_dir = proc_mkdir(DIRECTORY, NULL);
@@ -238,6 +240,9 @@ int __init mp_init(void) {
 
 	wq = create_workqueue("mp3");
 	buffer = vmalloc(BUFFER_SIZE);
+	for (i = 0; i < NUM_PAGES; i++) {
+		SetPageReserved(vmalloc_to_page((char *)buffer + i * PAGE_SIZE));
+	}
 	buffer_index = 0;
 
 out:
@@ -247,9 +252,13 @@ out:
 void __exit mp_exit(void) {
 	struct mp3_task_struct *curr, *tmp;
 	unsigned long flags;
+	size_t i;
 
 	remove_proc_entry(FILENAME, mp_dir);
 	remove_proc_entry(DIRECTORY, NULL);
+	if (delayed_work_pending(&mp_work)) {
+		cancel_delayed_work_sync(&mp_work);
+	}
 	flush_workqueue(wq);
 	destroy_workqueue(wq);
 	spin_lock_irqsave(&process_list_lock, flags);
@@ -258,6 +267,9 @@ void __exit mp_exit(void) {
 		kfree(curr);
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
+	for (i = 0; i < NUM_PAGES; i++) {
+		ClearPageReserved(vmalloc_to_page((char *)buffer + i * PAGE_SIZE));
+	}
 	vfree(buffer);
 }
 
