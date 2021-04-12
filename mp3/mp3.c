@@ -21,7 +21,7 @@ MODULE_DESCRIPTION("CS-423 MP3");
 
 #define DIRECTORY "mp3"
 #define FILENAME "status"
-#define DEV_NAME "pf_profiler"
+#define DEV_NAME "mp3buf"
 #define NUM_PAGES 128
 #define BUFFER_SIZE NUM_PAGES * PAGE_SIZE
 #define MAX_INDEX 48000
