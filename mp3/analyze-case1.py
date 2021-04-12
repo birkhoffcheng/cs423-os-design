@@ -28,4 +28,6 @@ for i in range(len(time)):
 faults = [a + b for a, b in zip(min_flt, maj_flt)]
 
 plt.plot(time, faults)
+plt.xlabel('Time (jiffies)')
+plt.ylabel('Page Fault Count')
 plt.savefig(sys.argv[2])
