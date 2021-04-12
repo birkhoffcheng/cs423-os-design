@@ -300,7 +300,7 @@ int __init mp_init(void) {
 	}
 
 	buffer_index = 0;
-	memset(buffer, 0, BUFFER_SIZE);
+	memset(buffer, 0xff, BUFFER_SIZE);
 	goto out;
 
 rm_workqueue:
