@@ -62,22 +62,22 @@ int main(int argc, char* argv[])
 
   i = 0;
   while(buf[index] != -1){
-    printf("%ld ", buf[index]);
+    printf("%lu ", buf[index]);
     buf[index++] = -1;
     if(index >= BUFD_MAX)
       index = 0;
 
-    printf("%ld ", buf[index]);
+    printf("%lu ", buf[index]);
     buf[index++] = -1;
     if(index >= BUFD_MAX)
       index = 0;
 
-    printf("%ld ", buf[index]);
+    printf("%lu ", buf[index]);
     buf[index++] = -1;
     if(index >= BUFD_MAX)
       index = 0;
 
-    printf("%ld\n", buf[index]);
+    printf("%lu\n", buf[index]);
     buf[index++] = -1;
     if(index >= BUFD_MAX)
       index = 0;
