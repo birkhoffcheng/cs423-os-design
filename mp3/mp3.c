@@ -24,6 +24,7 @@ MODULE_DESCRIPTION("CS-423 MP3");
 #define DEV_NAME "pf_profiler"
 #define NUM_PAGES 128
 #define BUFFER_SIZE NUM_PAGES * PAGE_SIZE
+#define MAX_INDEX 48000
 static struct proc_dir_entry *mp_dir, *status_file;
 static LIST_HEAD(process_list);
 static DEFINE_SPINLOCK(process_list_lock);
@@ -55,10 +56,12 @@ static void update_mem_status(struct work_struct *work) {
 	total_util = 0;
 
 	spin_lock_irqsave(&process_list_lock, flags);
-	if (!list_empty(&process_list)) {
-		queue_delayed_work(wq, &mp_work, delay_jiffies);
+	if (list_empty(&process_list)) {
+		spin_unlock_irqrestore(&process_list_lock, flags);
+		return;
 	}
 
+	queue_delayed_work(wq, &mp_work, delay_jiffies);
 	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
 		if (get_cpu_use(curr->pid, &min_flt, &maj_flt, &utime, &stime) == 0) {
 			curr->maj_flt += maj_flt;
@@ -80,7 +83,7 @@ static void update_mem_status(struct work_struct *work) {
 	buffer[buffer_index++] = total_min_flt;
 	buffer[buffer_index++] = total_maj_flt;
 	buffer[buffer_index++] = total_util;
-	buffer_index %= BUFFER_SIZE / sizeof(unsigned long);
+	buffer_index %= MAX_INDEX;
 	spin_unlock_irqrestore(&buffer_lock, flags);
 }
 
@@ -270,20 +273,45 @@ int __init mp_init(void) {
 	status_file = proc_create(FILENAME, 0666, mp_dir, &mp_file_op);
 	if (status_file == NULL) {
 		error = -ENOMEM;
-		goto out;
+		goto rm_proc_dir;
 	}
 
-	alloc_chrdev_region(&mp_dev, 0, 1, DEV_NAME);
-	cdev_init(&mp_cdev, &mp_cdev_op);
-	cdev_add(&mp_cdev, mp_dev, 1);
+	if ((error = alloc_chrdev_region(&mp_dev, 0, 1, DEV_NAME)) < 0) {
+		goto rm_proc_entry;
+	}
 
-	wq = create_workqueue("mp3");
-	buffer = vmalloc(BUFFER_SIZE);
+	cdev_init(&mp_cdev, &mp_cdev_op);
+	if ((error = cdev_add(&mp_cdev, mp_dev, 1)) < 0) {
+		goto rm_chrdev_region;
+	}
+
+	if ((wq = create_workqueue("mp3")) == NULL) {
+		error = -ENOMEM;
+		goto rm_cdev;
+	}
+
+	if ((buffer = vmalloc(BUFFER_SIZE)) == NULL) {
+		error = -ENOMEM;
+		goto rm_workqueue;
+	}
+
 	for (i = 0; i < NUM_PAGES; i++) {
 		SetPageReserved(vmalloc_to_page((char *)buffer + i * PAGE_SIZE));
 	}
-	buffer_index = 0;
 
+	buffer_index = 0;
+	goto out;
+
+rm_workqueue:
+	destroy_workqueue(wq);
+rm_cdev:
+	cdev_del(&mp_cdev);
+rm_chrdev_region:
+	unregister_chrdev_region(mp_dev, 1);
+rm_proc_entry:
+	remove_proc_entry(FILENAME, mp_dir);
+rm_proc_dir:
+	remove_proc_entry(DIRECTORY, NULL);
 out:
 	return error;
 }
