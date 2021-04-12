@@ -47,6 +47,7 @@ struct mp3_task_struct {
 	struct list_head elem;
 };
 
+// Update the shared memory region with latest memory status (uses circular queue)
 static void update_mem_status(struct work_struct *work) {
 	unsigned long flags, maj_flt, min_flt, utime, stime, total_maj_flt, total_min_flt, total_util;
 	struct mp3_task_struct *curr, *tmp;
@@ -63,6 +64,7 @@ static void update_mem_status(struct work_struct *work) {
 
 	queue_delayed_work(wq, &mp_work, delay_jiffies);
 	list_for_each_entry_safe(curr, tmp, &process_list, elem) {
+		// Compute cumulative statistics
 		if (get_cpu_use(curr->pid, &min_flt, &maj_flt, &utime, &stime) == 0) {
 			curr->maj_flt += maj_flt;
 			curr->min_flt += min_flt;
@@ -78,11 +80,13 @@ static void update_mem_status(struct work_struct *work) {
 	}
 	spin_unlock_irqrestore(&process_list_lock, flags);
 
+	// Use a separate buffer lock so two work threads can work together
 	spin_lock_irqsave(&buffer_lock, flags);
 	buffer[buffer_index++] = jiffies;
 	buffer[buffer_index++] = total_min_flt;
 	buffer[buffer_index++] = total_maj_flt;
 	buffer[buffer_index++] = total_util;
+	// Wrap around only at the end because MAX_INDEX is a multiple of four
 	buffer_index %= MAX_INDEX;
 	spin_unlock_irqrestore(&buffer_lock, flags);
 }
@@ -146,7 +150,9 @@ static bool mp3_register(char *input) {
 	task = kmalloc(sizeof(struct mp3_task_struct), GFP_KERNEL);
 	task->pid = pid;
 	task->linux_task = linux_task;
-	delay_jiffies = msecs_to_jiffies(50);
+	task->util = 0;
+	task->maj_flt = 0;
+	task->min_flt = 0;
 
 	spin_lock_irqsave(&process_list_lock, flags);
 	if (list_empty(&process_list)) {
@@ -240,6 +246,7 @@ int mp_cdev_mmap(struct file *file, struct vm_area_struct *vma) {
 		goto out;
 	}
 
+	// Map pages to user vma
 	for (i = 0; i < length; i += PAGE_SIZE) {
 		pfn = vmalloc_to_pfn((char *)buffer + i);
 		res = remap_pfn_range(vma, start + i, pfn, PAGE_SIZE, vma->vm_page_prot);
@@ -300,6 +307,7 @@ int __init mp_init(void) {
 	}
 
 	buffer_index = 0;
+	delay_jiffies = msecs_to_jiffies(50);
 	memset(buffer, 0xff, BUFFER_SIZE);
 	goto out;
 
