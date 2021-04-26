@@ -55,6 +55,12 @@ static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 	 * Add your code here
 	 * ...
 	 */
+	struct mp4_security *msec = kmalloc(sizeof(struct mp4_security), gfp);
+	if (!msec)
+		return -ENOMEM;
+
+	msec->mp4_flags = MP4_NO_ACCESS;
+	cred->security = msec;
 	return 0;
 }
 
@@ -71,6 +77,7 @@ static void mp4_cred_free(struct cred *cred)
 	 * Add your code here
 	 * ...
 	 */
+	kfree(cred->security);
 }
 
 /**
@@ -84,6 +91,11 @@ static void mp4_cred_free(struct cred *cred)
 static int mp4_cred_prepare(struct cred *new, const struct cred *old,
 			    gfp_t gfp)
 {
+	struct mp4_security *msec = kmemdup(old->security, sizeof(struct mp4_security), gfp);
+	if (!msec)
+		return -ENOMEM;
+
+	new->security = msec;
 	return 0;
 }
 
