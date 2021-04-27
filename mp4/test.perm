@@ -1,0 +1,5 @@
+test -f $HOME/file.txt || echo 'content' > $HOME/file.txt
+setfattr -n security.mp4 -v target /bin/cat
+setfattr -n security.mp4 -v dir /home
+setfattr -n security.mp4 -v dir $HOME
+setfattr -n security.mp4 -v read-only $HOME/file.txt

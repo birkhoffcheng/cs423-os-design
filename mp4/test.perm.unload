@@ -1,0 +1,4 @@
+xattr -d security.mp4 /bin/cat
+xattr -d security.mp4 /home
+xattr -d security.mp4 $HOME
+xattr -d security.mp4 $HOME/file.txt
