@@ -129,11 +129,18 @@ static void mp4_cred_free(struct cred *cred)
 static int mp4_cred_prepare(struct cred *new, const struct cred *old,
 			    gfp_t gfp)
 {
-	struct mp4_security *msec = kmemdup(old->security, sizeof(struct mp4_security), gfp);
+	struct mp4_security *msec;
+	if (old && old->security) {
+		msec = kmemdup(old->security, sizeof(struct mp4_security), gfp);
+	}
+	else {
+		mp4_cred_alloc_blank(new, gfp);
+		return 0;
+	}
 	if (!msec)
 		return -ENOMEM;
 
-	new->security = msec;
+	if (new) new->security = msec;
 	return 0;
 }
 
@@ -178,7 +185,7 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
  *
  */
 #define PERMIT 0
-#define DENY 0
+#define DENY -EACCES
 static int mp4_has_permission(int ssid, int osid, int mask)
 {
 	/*
@@ -275,7 +282,41 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	 * Add your code here
 	 * ...
 	 */
-	return 0;
+	int ssid, osid, ret = 0;
+	char *path, *buf;
+	struct mp4_security *msec;
+	struct dentry *dentry = d_find_alias(inode);
+	if (!dentry)
+		goto out;
+
+	buf = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (!buf)
+		goto out_dput;
+
+	path = dentry_path_raw(dentry, buf, PATH_MAX);
+	if (IS_ERR(path))
+		goto out_kfree;
+
+	if (mp4_should_skip_path(path))
+		goto out_kfree;
+
+	osid = get_inode_sid(inode);
+	if (osid < 0)
+		goto out_kfree;
+
+	msec = current_cred()->security;
+	ssid = msec->mp4_flags;
+	ret = mp4_has_permission(ssid, osid, mask);
+	if (ret) {
+		pr_info("ssid %d, osid %d, request %d has been denied\n", ssid, osid, mask);
+	}
+
+out_kfree:
+	kfree(buf);
+out_dput:
+	dput(dentry);
+out:
+	return ret;
 }
 
 
