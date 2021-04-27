@@ -1,5 +1,5 @@
 #define pr_fmt(fmt) "cs423_mp4: " fmt
-
+#define XATTR_LEN 64
 #include <linux/lsm_hooks.h>
 #include <linux/security.h>
 #include <linux/kernel.h>
@@ -23,9 +23,42 @@ static int get_inode_sid(struct inode *inode)
 	 * Add your code here
 	 * ...
 	 */
-	return 0;
+	char *cred_ctx;
+	int ret = 0;
+	struct dentry *dentry = d_find_alias(inode);
+
+	if (!dentry) {
+		pr_err("Dentry NULL\n");
+		ret = -EFAULT;
+		goto out;
+	}
+
+	cred_ctx = kzalloc(XATTR_LEN, GFP_NOFS);
+	if (!cred_ctx) {
+		ret = -ENOMEM;
+		goto out_dput;
+	}
+
+	if (!inode->i_op->getxattr)
+		goto out_kfree;
+
+	ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, cred_ctx, XATTR_LEN);
+	if (ret < 0) {
+		ret = 0;
+		goto out_kfree;
+	}
+
+	ret = __cred_ctx_to_sid(cred_ctx);
+
+out_kfree:
+	kfree(cred_ctx);
+out_dput:
+	dput(dentry);
+out:
+	return ret;
 }
 
+static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp);
 /**
  * mp4_bprm_set_creds - Set the credentials for a new task
  *
@@ -39,6 +72,12 @@ static int mp4_bprm_set_creds(struct linux_binprm *bprm)
 	 * Add your code here
 	 * ...
 	 */
+	int sid = get_inode_sid(bprm->file->f_inode);
+	struct mp4_security *msec = bprm->cred->security;
+	if (!msec)
+		mp4_cred_alloc_blank(bprm->cred, GFP_KERNEL);
+	if (sid == MP4_TARGET_SID)
+		msec->mp4_flags = MP4_TARGET_SID;
 	return 0;
 }
 
@@ -55,11 +94,10 @@ static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 	 * Add your code here
 	 * ...
 	 */
-	struct mp4_security *msec = kmalloc(sizeof(struct mp4_security), gfp);
+	struct mp4_security *msec = kzalloc(sizeof(struct mp4_security), gfp);
 	if (!msec)
 		return -ENOMEM;
 
-	msec->mp4_flags = MP4_NO_ACCESS;
 	cred->security = msec;
 	return 0;
 }
@@ -120,6 +158,12 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
 	 * Add your code here
 	 * ...
 	 */
+	struct mp4_security *msec = current_cred()->security;
+	if (msec->mp4_flags == MP4_TARGET_SID) {
+		*name = kstrdup(XATTR_MP4_SUFFIX, GFP_KERNEL);
+		*value = kstrdup("read-write", GFP_KERNEL);
+		*len = strlen(*value);
+	}
 	return 0;
 }
 
@@ -133,13 +177,85 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
  * returns 0 is access granter, -EACCES otherwise
  *
  */
+#define PERMIT 0
+#define DENY 0
 static int mp4_has_permission(int ssid, int osid, int mask)
 {
 	/*
 	 * Add your code here
 	 * ...
 	 */
-	return 0;
+	int ret;
+
+	mask &= (MAY_READ | MAY_WRITE | MAY_EXEC | MAY_APPEND | MAY_ACCESS);
+	if (!mask) {
+		ret = PERMIT;
+		goto out;
+	}
+
+	if (ssid != MP4_TARGET_SID) {
+		if (osid == MP4_EXEC_OBJ)
+			if (mask & ~(MAY_READ | MAY_EXEC))
+				ret = DENY;
+			else
+				ret = PERMIT;
+		else if (mask & ~(MAY_READ | MAY_ACCESS))
+			ret = DENY;
+		else
+			ret = PERMIT;
+		goto out;
+	}
+
+	switch (osid)
+	{
+	case MP4_NO_ACCESS:
+		ret = DENY;
+		break;
+
+	case MP4_READ_OBJ:
+		if (mask & ~MAY_READ)
+			ret = DENY;
+		else
+			ret = PERMIT;
+		break;
+
+	case MP4_READ_WRITE:
+		if (mask & ~(MAY_READ | MAY_WRITE | MAY_APPEND))
+			ret = DENY;
+		else
+			ret = PERMIT;
+		break;
+
+	case MP4_WRITE_OBJ:
+		if (mask & ~(MAY_WRITE | MAY_APPEND))
+			ret = DENY;
+		else
+			ret = PERMIT;
+		break;
+
+	case MP4_EXEC_OBJ:
+		if (mask & ~(MAY_READ | MAY_EXEC))
+			ret = DENY;
+		else
+			ret = PERMIT;
+		break;
+
+	case MP4_READ_DIR:
+		if (mask & ~(MAY_READ | MAY_EXEC | MAY_ACCESS))
+			ret = DENY;
+		else
+			ret = PERMIT;
+		break;
+
+	case MP4_RW_DIR:
+
+	default:
+		ret = PERMIT;
+		break;
+	}
+
+out:
+	return ret;
 }
 
 /**
