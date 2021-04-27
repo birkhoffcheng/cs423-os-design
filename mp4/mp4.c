@@ -25,22 +25,26 @@ static int get_inode_sid(struct inode *inode)
 	 */
 	char *cred_ctx;
 	int ret = 0;
-	struct dentry *dentry = d_find_alias(inode);
+	struct dentry *dentry;
 
+	if (!inode || !inode->i_op || !inode->i_op->getxattr) {
+		if (printk_ratelimit()) pr_err("get_inode_sid: inode ops NULL\n");
+		goto out_kfree;
+	}
+
+	dentry = d_find_alias(inode);
 	if (!dentry) {
-		pr_err("Dentry NULL\n");
+		if (printk_ratelimit()) pr_err("get_inode_sid: Dentry NULL\n");
 		ret = -EFAULT;
 		goto out;
 	}
 
 	cred_ctx = kzalloc(XATTR_LEN, GFP_NOFS);
 	if (!cred_ctx) {
+		if (printk_ratelimit()) pr_err("get_inode_sid: No Memory\n");
 		ret = -ENOMEM;
 		goto out_dput;
 	}
-
-	if (!inode->i_op->getxattr)
-		goto out_kfree;
 
 	ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, cred_ctx, XATTR_LEN);
 	if (ret < 0) {
@@ -285,13 +289,24 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	int ssid, osid, ret = 0;
 	char *path, *buf;
 	struct mp4_security *msec;
-	struct dentry *dentry = d_find_alias(inode);
-	if (!dentry)
+	struct dentry *dentry;
+
+	if (!inode) {
+		if (printk_ratelimit()) pr_err("inode_permission: Inode NULL\n");
 		goto out;
+	}
+
+	dentry = d_find_alias(inode);
+	if (!dentry) {
+		if (printk_ratelimit()) pr_err("inode_permission: Can't find dentry\n");
+		goto out;
+	}
 
 	buf = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (!buf)
+	if (!buf) {
+		if (printk_ratelimit()) pr_err("inode_permission: No Memory\n");
 		goto out_dput;
+	}
 
 	path = dentry_path_raw(dentry, buf, PATH_MAX);
 	if (IS_ERR(path))
