@@ -28,20 +28,20 @@ static int get_inode_sid(struct inode *inode)
 	struct dentry *dentry;
 
 	if (!inode || !inode->i_op || !inode->i_op->getxattr) {
-		if (printk_ratelimit()) pr_err("get_inode_sid: inode ops NULL\n");
-		goto out_kfree;
+		ret = -1;
+		goto out;
 	}
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
-		if (printk_ratelimit()) pr_err("get_inode_sid: Dentry NULL\n");
+		pr_err("get_inode_sid: Dentry NULL\n");
 		ret = -EFAULT;
 		goto out;
 	}
 
 	cred_ctx = kzalloc(XATTR_LEN, GFP_NOFS);
 	if (!cred_ctx) {
-		if (printk_ratelimit()) pr_err("get_inode_sid: No Memory\n");
+		pr_err("get_inode_sid: No Memory\n");
 		ret = -ENOMEM;
 		goto out_dput;
 	}
@@ -292,19 +292,19 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	struct dentry *dentry;
 
 	if (!inode) {
-		if (printk_ratelimit()) pr_err("inode_permission: Inode NULL\n");
+		pr_err("inode_permission: Inode NULL\n");
 		goto out;
 	}
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
-		if (printk_ratelimit()) pr_err("inode_permission: Can't find dentry\n");
+		pr_err("inode_permission: Can't find dentry\n");
 		goto out;
 	}
 
 	buf = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (!buf) {
-		if (printk_ratelimit()) pr_err("inode_permission: No Memory\n");
+		pr_err("inode_permission: No Memory\n");
 		goto out_dput;
 	}
 
@@ -325,6 +325,7 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	if (ret) {
 		pr_info("ssid %d, osid %d, request %d has been denied\n", ssid, osid, mask);
 	}
+	ret = 0;
 
 out_kfree:
 	kfree(buf);
