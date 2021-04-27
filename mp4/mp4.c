@@ -325,9 +325,8 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	ssid = msec->mp4_flags;
 	ret = mp4_has_permission(ssid, osid, mask);
 	if (ret) {
-		pr_info("ssid %d, osid %d, request %x has been denied\n", ssid, osid, mask);
+		pr_info("ssid %d, osid %d, request 0x%x has been denied\n", ssid, osid, mask);
 	}
-	ret = 0;
 
 out_kfree:
 	kfree(buf);
