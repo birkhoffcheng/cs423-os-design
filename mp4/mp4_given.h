@@ -7,28 +7,24 @@
 /* mp4 extended attributed */
 #define XATTR_MP4_SUFFIX "mp4"
 #define XATTR_NAME_MP4 XATTR_SECURITY_PREFIX XATTR_MP4_SUFFIX
+#define XATTR_LEN 64
 
 /* mp4 labels along with their semantics */
-#define MP4_NO_ACCESS	0	/* may not be accessed by target,
-				 * but may by everyone else */
+#define MP4_NO_ACCESS	0	/* may not be accessed by target, but may by everyone else */
 #define MP4_READ_OBJ	1	/* object may be read by anyone */
-#define MP4_READ_WRITE	2	/* object may read/written/appended by the target,
-				 * but can only be read by others */
-#define MP4_WRITE_OBJ	3	/* object may be written/appended by the target,
-				 * but not read, and only read by others */
+#define MP4_READ_WRITE	2	/* object may read/written/appended by the target, but can only be read by others */
+#define MP4_WRITE_OBJ	3	/* object may be written/appended by the target, but not read, and only read by others */
 #define MP4_EXEC_OBJ	4	/* object may be read and executed by all */
 
 /*
  * NOTE: FOR DIRECTORIES, ONLY CHECK ACCESS FOR THE TARGET SID, ALL OTHER NON
  * TARGET PROCESSES SHOULD DEFAULT TO THE REGULAR LINUX ACCESS CONTROL
  */
-#define MP4_READ_DIR	5	/* for directories that can be read/exec/access
-				 * by all */
-#define MP4_RW_DIR	6	/* for directory that may be modified by the
-				 * target program */
+#define MP4_READ_DIR	5	/* for directories that can be read/exec/access by all */
+#define MP4_RW_DIR	6	/* for directory that may be modified by the target program */
 
 /* the target mp4 sid label */
-#define MP4_TARGET_SID 7
+#define MP4_TARGET_SID	7
 
 /**
  * Our custom mp4 security label on tasks and inodes
@@ -36,7 +32,6 @@
  */
 struct mp4_security {
 	int mp4_flags;
-
 	/* add any supporting definitions here if needed
 	 * ...
 	 */

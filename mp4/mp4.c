@@ -1,5 +1,4 @@
 #define pr_fmt(fmt) "cs423_mp4: " fmt
-#define XATTR_LEN 64
 #include <linux/lsm_hooks.h>
 #include <linux/security.h>
 #include <linux/kernel.h>
@@ -48,7 +47,7 @@ static int get_inode_sid(struct inode *inode)
 
 	ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, cred_ctx, XATTR_LEN);
 	if (ret < 0) {
-		ret = 0;
+		ret = MP4_NO_ACCESS;
 		goto out_kfree;
 	}
 
@@ -76,12 +75,12 @@ static int mp4_bprm_set_creds(struct linux_binprm *bprm)
 	 * Add your code here
 	 * ...
 	 */
-	int sid = get_inode_sid(bprm->file->f_inode);
 	struct mp4_security *msec = bprm->cred->security;
-	if (!msec)
+	if (!msec) {
 		mp4_cred_alloc_blank(bprm->cred, GFP_KERNEL);
-	if (sid == MP4_TARGET_SID)
-		msec->mp4_flags = MP4_TARGET_SID;
+		msec = bprm->cred->security;
+	}
+	msec->mp4_flags = get_inode_sid(bprm->file->f_inode);
 	return 0;
 }
 
@@ -98,10 +97,10 @@ static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 	 * Add your code here
 	 * ...
 	 */
-	struct mp4_security *msec = kzalloc(sizeof(struct mp4_security), gfp);
+	struct mp4_security *msec = kmalloc(sizeof(struct mp4_security), gfp);
 	if (!msec)
 		return -ENOMEM;
-
+	msec->mp4_flags = MP4_NO_ACCESS;
 	cred->security = msec;
 	return 0;
 }
@@ -290,27 +289,25 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	 * ...
 	 */
 	struct mp4_security *msec = current_cred()->security;
-	int ssid = msec->mp4_flags, osid, ret = 0;
+	int ssid = msec->mp4_flags, osid, ret = PERMIT;
 	char *path, *buf;
 	struct dentry *dentry;
 
 	if (!inode) {
-		pr_err("inode_permission: Inode NULL\n");
 		goto out;
 	}
 
-	if (!ssid && S_ISDIR(inode->i_mode))
+	if (ssid != MP4_TARGET_SID && S_ISDIR(inode->i_mode))
 		goto out;
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
-		pr_err("inode_permission: Can't find dentry\n");
+		pr_err("inode_permission: Can't find dentry for inode %lu\n", inode->i_ino);
 		goto out;
 	}
 
-	buf = kzalloc(PATH_MAX, GFP_KERNEL);
+	buf = kmalloc(PATH_MAX, GFP_KERNEL);
 	if (!buf) {
-		pr_err("inode_permission: No Memory\n");
 		goto out_dput;
 	}
 
