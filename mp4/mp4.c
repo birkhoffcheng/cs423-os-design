@@ -27,20 +27,19 @@ static int get_inode_sid(struct inode *inode)
 	struct dentry *dentry;
 
 	if (!inode || !inode->i_op || !inode->i_op->getxattr) {
-		ret = -1;
+		ret = -EINVAL;
 		goto out;
 	}
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
-		pr_err("get_inode_sid: Dentry NULL\n");
+		pr_err("get_inode_sid: Cannot find dentry for inode %lu\n", inode->i_ino);
 		ret = -EFAULT;
 		goto out;
 	}
 
 	cred_ctx = kzalloc(XATTR_LEN, GFP_NOFS);
 	if (!cred_ctx) {
-		pr_err("get_inode_sid: No Memory\n");
 		ret = -ENOMEM;
 		goto out_dput;
 	}
@@ -302,7 +301,7 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
-		pr_err("inode_permission: Can't find dentry for inode %lu\n", inode->i_ino);
+		pr_err("inode_permission: Cannot find dentry for inode %lu\n", inode->i_ino);
 		goto out;
 	}
 
