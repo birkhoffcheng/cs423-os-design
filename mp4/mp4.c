@@ -207,7 +207,7 @@ static int mp4_has_permission(int ssid, int osid, int mask)
 	if (ssid != MP4_TARGET_SID) {
 		if (osid == MP4_NO_ACCESS)
 			ret = PERMIT;
-		else if (osid == MP4_EXEC_OBJ) {
+		else if (osid == MP4_EXEC_OBJ || osid == MP4_TARGET_SID) {
 			if (mask & ~(MAY_READ | MAY_EXEC | MAY_ACCESS))
 				ret = DENY;
 			else
