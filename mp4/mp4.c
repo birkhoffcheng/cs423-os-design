@@ -207,11 +207,12 @@ static int mp4_has_permission(int ssid, int osid, int mask)
 	if (ssid != MP4_TARGET_SID) {
 		if (osid == MP4_NO_ACCESS)
 			ret = PERMIT;
-		else if (osid == MP4_EXEC_OBJ || osid == MP4_READ_DIR || osid == MP4_RW_DIR)
+		else if (osid == MP4_EXEC_OBJ) {
 			if (mask & ~(MAY_READ | MAY_EXEC | MAY_ACCESS))
 				ret = DENY;
 			else
 				ret = PERMIT;
+		}
 		else if (mask & ~(MAY_READ | MAY_ACCESS))
 			ret = DENY;
 		else
@@ -288,15 +289,18 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	 * Add your code here
 	 * ...
 	 */
-	int ssid, osid, ret = 0;
+	struct mp4_security *msec = current_cred()->security;
+	int ssid = msec->mp4_flags, osid, ret = 0;
 	char *path, *buf;
-	struct mp4_security *msec;
 	struct dentry *dentry;
 
 	if (!inode) {
 		pr_err("inode_permission: Inode NULL\n");
 		goto out;
 	}
+
+	if (!ssid && S_ISDIR(inode->i_mode))
+		goto out;
 
 	dentry = d_find_alias(inode);
 	if (!dentry) {
@@ -321,11 +325,9 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	if (osid < 0)
 		goto out_kfree;
 
-	msec = current_cred()->security;
-	ssid = msec->mp4_flags;
 	ret = mp4_has_permission(ssid, osid, mask);
 	if (ret) {
-		pr_info("ssid %d, osid %d, request 0x%x has been denied\n", ssid, osid, mask);
+		pr_info("ssid %d, osid %d, request 0x%x on inode %lu has been denied\n", ssid, osid, mask, inode->i_ino);
 	}
 
 out_kfree:
