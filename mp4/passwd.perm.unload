@@ -1,0 +1,26 @@
+sudo setfattr -x security.mp4 /usr/bin/passwd
+
+sudo setfattr -x security.mp4 /dev
+sudo setfattr -x security.mp4 /dev/urandom
+
+sudo setfattr -x security.mp4 /etc
+sudo setfattr -x security.mp4 /etc/ld.so.cache
+sudo setfattr -x security.mp4 /etc/passwd
+sudo setfattr -x security.mp4 /etc/shadow
+sudo setfattr -x security.mp4 /etc/.pwd.lock
+
+sudo setfattr -x security.mp4 /etc/pam.d
+sudo setfattr -x security.mp4 /etc/pam.d/common-account
+sudo setfattr -x security.mp4 /etc/pam.d/common-auth
+sudo setfattr -x security.mp4 /etc/pam.d/common-password
+sudo setfattr -x security.mp4 /etc/pam.d/common-session
+sudo setfattr -x security.mp4 /etc/pam.d/other
+
+sudo setfattr -x security.mp4 /var
+sudo setfattr -x security.mp4 /var/cache
+sudo setfattr -x security.mp4 /var/cache/cracklib
+sudo setfattr -x security.mp4 /var/cache/cracklib/cracklib_dict.pwd
+sudo setfattr -x security.mp4 /var/cache/cracklib/cracklib_dict.pwi
+sudo setfattr -x security.mp4 /var/cache/cracklib/cracklib_dict.hwm
+sudo setfattr -x security.mp4 /var/run
+sudo setfattr -x security.mp4 /var/run/utmp

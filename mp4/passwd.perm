@@ -1,0 +1,26 @@
+sudo setfattr -n security.mp4 -v target /usr/bin/passwd
+
+sudo setfattr -n security.mp4 -v dir /dev
+sudo setfattr -n security.mp4 -v read-only /dev/urandom
+
+sudo setfattr -n security.mp4 -v dir-write /etc
+sudo setfattr -n security.mp4 -v read-only /etc/ld.so.cache
+sudo setfattr -n security.mp4 -v read-only /etc/passwd
+sudo setfattr -n security.mp4 -v read-write /etc/shadow
+sudo setfattr -n security.mp4 -v write-only /etc/.pwd.lock
+
+sudo setfattr -n security.mp4 -v dir /etc/pam.d
+sudo setfattr -n security.mp4 -v read-only /etc/pam.d/common-account
+sudo setfattr -n security.mp4 -v read-only /etc/pam.d/common-auth
+sudo setfattr -n security.mp4 -v read-only /etc/pam.d/common-password
+sudo setfattr -n security.mp4 -v read-only /etc/pam.d/common-session
+sudo setfattr -n security.mp4 -v read-only /etc/pam.d/other
+
+sudo setfattr -n security.mp4 -v dir /var
+sudo setfattr -n security.mp4 -v dir /var/cache
+sudo setfattr -n security.mp4 -v dir /var/cache/cracklib
+sudo setfattr -n security.mp4 -v read-only /var/cache/cracklib/cracklib_dict.pwd
+sudo setfattr -n security.mp4 -v read-only /var/cache/cracklib/cracklib_dict.pwi
+sudo setfattr -n security.mp4 -v read-only /var/cache/cracklib/cracklib_dict.hwm
+sudo setfattr -n security.mp4 -v dir /var/run
+sudo setfattr -n security.mp4 -v read-only /var/run/utmp
