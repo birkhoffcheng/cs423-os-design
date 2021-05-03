@@ -1,4 +1,4 @@
-setfattr -x security.mp4 /bin/cat
-setfattr -x security.mp4 /home
-setfattr -x security.mp4 $HOME
-setfattr -x security.mp4 $HOME/file.txt
+sudo setfattr -x security.mp4 /bin/cat
+sudo setfattr -x security.mp4 /home
+sudo setfattr -x security.mp4 $HOME
+sudo setfattr -x security.mp4 $HOME/file.txt
